@@ -19,6 +19,21 @@ def get_token():
     )
     return res.json().get("tenant_access_token")
 
+def parse_field(val):
+    if val is None:
+        return None
+    if isinstance(val, list):
+        parts = []
+        for v in val:
+            if isinstance(v, dict):
+                parts.append(v.get("text", v.get("name", str(v))))
+            else:
+                parts.append(str(v))
+        return ", ".join(parts)
+    if isinstance(val, dict):
+        return val.get("text", val.get("name", str(val)))
+    return val
+
 @st.cache_data(ttl=300)
 def get_data():
     token = get_token()
@@ -36,7 +51,8 @@ def get_data():
         items = res.get("data", {}).get("items", [])
         for item in items:
             fields = item.get("fields", {})
-            records.append(fields)
+            parsed = {k: parse_field(v) for k, v in fields.items()}
+            records.append(parsed)
         if not res.get("data", {}).get("has_more"):
             break
         page_token = res["data"].get("page_token")
@@ -46,14 +62,15 @@ with st.spinner("正在加载数据..."):
     try:
         df = get_data()
         if df.empty:
-            st.warning("暂无数据，请检查飞书表格权限设置")
+            st.warning("暂无数据")
             st.stop()
         # 处理日期
         if "日期" in df.columns:
-            df["日期"] = pd.to_datetime(df["日期"].apply(
-                lambda x: x/1000 if isinstance(x, (int, float)) else x
-            ), unit="s", errors="coerce")
-        # 数值列转换
+            df["日期"] = pd.to_datetime(
+                df["日期"].apply(lambda x: x/1000 if isinstance(x, (int, float)) else x),
+                unit="s", errors="coerce"
+            )
+        # 数值列
         num_cols = ["总客资", "广告客资", "自然流客资", "广告投放", "涨粉量", "最高在线人数"]
         for col in num_cols:
             if col in df.columns:
@@ -65,29 +82,23 @@ with st.spinner("正在加载数据..."):
 # 侧边栏筛选
 st.sidebar.header("🔍 筛选条件")
 if "日期" in df.columns:
-    valid_dates = df["日期"].dropna()
-    if not valid_dates.empty:
-        date_range = st.sidebar.date_input(
-            "选择日期范围",
-            [valid_dates.min().date(), valid_dates.max().date()]
-        )
-        if len(date_range) == 2:
-            df = df[
-                (df["日期"] >= pd.Timestamp(date_range[0])) &
-                (df["日期"] <= pd.Timestamp(date_range[1]))
-            ]
+    valid = df["日期"].dropna()
+    if not valid.empty:
+        dr = st.sidebar.date_input("选择日期范围", [valid.min().date(), valid.max().date()])
+        if len(dr) == 2:
+            df = df[(df["日期"] >= pd.Timestamp(dr[0])) & (df["日期"] <= pd.Timestamp(dr[1]))]
 
 if "账号" in df.columns:
-    accounts = ["全部"] + sorted(df["账号"].dropna().astype(str).unique().tolist())
-    sel = st.sidebar.selectbox("选择账号", accounts)
+    opts = ["全部"] + sorted(df["账号"].dropna().astype(str).unique().tolist())
+    sel = st.sidebar.selectbox("选择账号", opts)
     if sel != "全部":
         df = df[df["账号"].astype(str) == sel]
 
 if "月份" in df.columns:
-    months = ["全部"] + sorted(df["月份"].dropna().astype(str).unique().tolist())
-    sel_m = st.sidebar.selectbox("选择月份", months)
-    if sel_m != "全部":
-        df = df[df["月份"].astype(str) == sel_m]
+    mopts = ["全部"] + sorted(df["月份"].dropna().astype(str).unique().tolist())
+    sm = st.sidebar.selectbox("选择月份", mopts)
+    if sm != "全部":
+        df = df[df["月份"].astype(str) == sm]
 
 st.sidebar.markdown(f"📋 当前数据：**{len(df)}** 条")
 
@@ -104,15 +115,16 @@ st.divider()
 # 趋势图
 st.subheader("📉 数据趋势")
 if "日期" in df.columns and "总客资" in df.columns:
-    trend = df.groupby("日期")[["总客资", "广告客资"]].sum().reset_index()
-    st.plotly_chart(px.line(trend, x="日期", y=["总客资", "广告客资"], title="客资每日趋势"), use_container_width=True)
+    cols_to_plot = [c for c in ["总客资", "广告客资"] if c in df.columns]
+    trend = df.groupby("日期")[cols_to_plot].sum().reset_index()
+    st.plotly_chart(px.line(trend, x="日期", y=cols_to_plot, title="客资每日趋势"), use_container_width=True)
 
-c_a, c_b = st.columns(2)
-with c_a:
+ca, cb = st.columns(2)
+with ca:
     if "日期" in df.columns and "涨粉量" in df.columns:
         fans = df.groupby("日期")["涨粉量"].sum().reset_index()
         st.plotly_chart(px.bar(fans, x="日期", y="涨粉量", title="每日涨粉量"), use_container_width=True)
-with c_b:
+with cb:
     if "账号" in df.columns and "总客资" in df.columns:
         acc = df.groupby("账号")["总客资"].sum().reset_index()
         st.plotly_chart(px.pie(acc, names="账号", values="总客资", title="各账号客资占比"), use_container_width=True)
