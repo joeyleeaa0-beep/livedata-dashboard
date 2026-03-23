@@ -131,4 +131,6 @@ with cb:
 
 st.divider()
 st.subheader("📋 数据明细")
-st.dataframe(df, use_container_width=True)
+# 过滤掉全是空值的列
+df_display = df.dropna(axis=1, how='all')
+st.dataframe(df_display, use_container_width=True)
