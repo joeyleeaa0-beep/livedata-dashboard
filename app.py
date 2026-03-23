@@ -9,7 +9,7 @@ st.title("📊 直播数据看板")
 APP_ID = st.secrets["FEISHU_APP_ID"]
 APP_SECRET = st.secrets["FEISHU_APP_SECRET"]
 APP_TOKEN = "Cmt7b5aNYaDS6UsboTBcLlVBnBc"
-TABLE_ID = "tbl2qLySfJEvfQyj"
+TABLE_ID = "tbl76AkkVBxARYt8"
 
 @st.cache_data(ttl=300)
 def get_token():
